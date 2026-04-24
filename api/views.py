@@ -8,13 +8,19 @@ class ProcessImageView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request, *args, **kwargs):
+        # --- EL ESPÍA: Para ver en Render qué carajos manda Flutter ---
+        print("\n" + "="*40)
+        print("🚨 ¡NUEVA PETICIÓN DESDE LA APP! 🚨")
+        print(f"Datos recibidos (QueryDict): {request.data}")
+        print("="*40 + "\n")
+        
         image_obj = request.FILES.get('image')
         
-        # 1. Recibimos los datos del front (Flutter)
-        # Si el compa de Flutter aún no manda 'room_type', ponemos 'bathroom' por defecto
-        room_type = request.data.get('room_type', 'bathroom')
-        material_piso = request.data.get('material_piso', 'modern tiles')
-        material_pared = request.data.get('material_pared', 'white marble')
+        # --- EL ARREGLO: Buscamos las llaves exactas que manda Flutter ---
+        # Si no las manda, ponemos valores por defecto en INGLÉS para la IA
+        room_type = request.data.get('tipo', 'bathroom') 
+        material_piso = request.data.get('piso', 'modern tiles')
+        material_pared = request.data.get('pared', 'white marble')
 
         if not image_obj:
             return Response({"error": "No se envió ninguna imagen"}, status=400)
@@ -29,7 +35,6 @@ class ProcessImageView(APIView):
             # Subir a Supabase
             image_url = service.upload_to_supabase(image_obj.read(), file_name)
             
-            # --- LA MACOYA ESTÁ AQUÍ ---
             # Armamos el diccionario que el nuevo servicio espera
             room_data = {
                 'tipo': room_type,
@@ -37,8 +42,9 @@ class ProcessImageView(APIView):
                 'pared': material_pared
             }
             
-            # Llamamos al método con el NOMBRE CORRECTO que pusimos en services.py
-            # Si en tu services.py le dejaste 'run_replicate_logic', cámbialo aquí también.
+            print(f"Enviando al motor IA -> Cuarto: {room_type} | Piso: {material_piso} | Pared: {material_pared}")
+            
+            # Llamamos al método
             result_url = service.run_remodelacion_logica(image_url, room_data)
             
             return Response({
@@ -49,5 +55,5 @@ class ProcessImageView(APIView):
             
         except Exception as e:
             # Imprime el error real en tu terminal para que lo veas clarito
-            print(f"Error detectado: {str(e)}")
+            print(f"❌ Error detectado en la vista: {str(e)}")
             return Response({"status": "error", "message": str(e)}, status=500)

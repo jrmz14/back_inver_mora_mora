@@ -1,82 +1,97 @@
 import os
 import requests
 import io
+import random
+import base64
 from PIL import Image
 from supabase import create_client
-from huggingface_hub import InferenceClient
 
 class AIService:
     def __init__(self):
-        # 1. Configuración de Supabase
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_KEY")
         self.bucket_name = os.getenv("SUPABASE_BUCKET_NAME", "remodelaciones")
-        
-        # --- LA LÍNEA QUE FALTABA: Sin esto el motor no arranca ---
         self.supabase = create_client(self.supabase_url, self.supabase_key)
-        # ---------------------------------------------------------
-
-        # Configuración de respaldo por si acaso (Hugging Face)
-        self.hf_client = InferenceClient(api_key=os.getenv("HF_TOKEN"))
+        
+        self.stability_key = os.getenv("STABILITY_KEY")
+        self.api_host = "https://api.stability.ai"
+        self.engine_id = "stable-diffusion-xl-1024-v1-0"
 
     def upload_to_supabase(self, file_data, file_name):
-        """Sube la imagen y devuelve la URL pública"""
         try:
-            # Ahora self.supabase ya existe, así que esto no fallará
             self.supabase.storage.from_(self.bucket_name).upload(
                 path=file_name,
                 file=file_data,
                 file_options={"content-type": "image/jpeg"}
             )
-            url_data = self.supabase.storage.from_(self.bucket_name).get_public_url(file_name)
-            return url_data
+            return self.supabase.storage.from_(self.bucket_name).get_public_url(file_name)
         except Exception as e:
             print(f"Error en Supabase: {e}")
             raise e
 
     def run_remodelacion_logica(self, imagen_url, room_data):
         try:
-            print(f"--- PASO 3: Remodelando {room_data['tipo']} con SD v1.5 ---")
+            print(f"--- PASO 3: Remodelando con Redimensionamiento ---")
             
             # 1. Bajamos la foto de Supabase
-            response = requests.get(imagen_url)
-            if response.status_code != 200:
-                raise Exception("No pude bajar la foto de Supabase")
+            response_img = requests.get(imagen_url)
+            if response_img.status_code != 200:
+                raise Exception("No pude bajar la foto original")
+
+            # --- AQUÍ ESTÁ EL ARREGLO: EL SASTRE ---
+            # Abrimos la imagen con Pillow
+            img = Image.open(io.BytesIO(response_img.content))
             
-            # Convertimos los bytes a un objeto que la IA entienda
-            original_img_bytes = response.content
+            # La forzamos a una medida que SDXL entienda (768x1344 es vertical pro)
+            # Usamos LANCZOS para que no pierda nitidez al cambiar de tamaño
+            img_resized = img.resize((768, 1344), Image.LANCZOS)
+            
+            # La volvemos a convertir a bytes para mandarla por la API
+            buffer = io.BytesIO()
+            img_resized.save(buffer, format="JPEG", quality=95)
+            img_final_bytes = buffer.getvalue()
+            # ---------------------------------------
 
-            # 2. El Super Prompt Dinámico
-            prompt = (f"A professional interior design of a {room_data['tipo']}, "
-                    f"with {room_data['piso']} flooring and {room_data['pared']} walls, "
-                    f"highly detailed, realistic, 8k, architectural lighting")
-
-            # 3. Llamada a Hugging Face forzando un modelo compatible
-            # Usamos runwayml/stable-diffusion-v1-5 que es el papá del Image-to-Image
-            processed_image = self.hf_client.image_to_image(
-                image=original_img_bytes,
-                prompt=prompt,
-                model="black-forest-labs/FLUX.1-dev", # El nuevo juguete
-                strength=0.6, # FLUX aguanta un poquito más de fuerza sin deformar tanto
-                guidance_scale=3.5 # FLUX suele usar valores más bajos aquí que SD 1.5
+            # 2. Llamada a Stability con la imagen ya "entallada"
+            response = requests.post(
+                f"{self.api_host}/v1/generation/{self.engine_id}/image-to-image",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {self.stability_key}"
+                },
+                files={
+                    "init_image": img_final_bytes # Mandamos los bytes redimensionados
+                },
+                data={
+                    "image_strength": 0.45,
+                    "init_image_mode": "IMAGE_STRENGTH",
+                    "text_prompts[0][text]": f"Professional interior design of a {room_data['tipo']}, with {room_data['piso']} floors and {room_data['pared']} walls, high quality, photorealistic, architectural lighting",
+                    "text_prompts[0][weight]": 1,
+                    "cfg_scale": 7,
+                    "samples": 1,
+                    "steps": 30,
+                }
             )
 
-            # 4. Guardar el resultado (Este bloque ya lo tienes fino)
+            if response.status_code != 200:
+                raise Exception(f"Error de Stability: {response.text}")
+
+            data = response.json()
+            image_base64 = data["artifacts"][0]["base64"]
+            image_bytes = base64.b64decode(image_base64)
+
+            # 3. Guardar en Supabase
             output_name = f"render_{os.urandom(4).hex()}.png"
-            img_byte_arr = io.BytesIO()
-            processed_image.save(img_byte_arr, format='PNG')
-            
             self.supabase.storage.from_(self.bucket_name).upload(
                 path=output_name,
-                file=img_byte_arr.getvalue(),
+                file=image_bytes,
                 file_options={"content-type": "image/png"}
             )
             
             return self.supabase.storage.from_(self.bucket_name).get_public_url(output_name)
 
         except Exception as e:
-            print(f"--- FALLÓ HF, USANDO POLLINATIONS DE RESPALDO ---")
-            print(f"Error real: {e}")
-            # El fiel Pollinations que nunca nos deja morir
-            prompt_p = f"luxury {room_data['tipo']} with {room_data['piso']} floor and {room_data['pared']} walls, realistic 8k"
-            return f"https://image.pollinations.ai/prompt/{prompt_p.replace(' ', '%20')}"
+            print(f"❌ FALLÓ MOTOR: {e}")
+            seed = random.randint(1, 1000000)
+            prompt_p = f"luxury {room_data['tipo']} with {room_data['piso']} floor and {room_data['pared']} walls"
+            return f"https://image.pollinations.ai/prompt/{prompt_p.replace(' ', '%20')}?seed={seed}"
