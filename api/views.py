@@ -8,12 +8,7 @@ class ProcessImageView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request, *args, **kwargs):
-        # --- EL ESPÍA: Para ver en Render qué carajos manda Flutter ---
-        print("\n" + "="*40)
-        print("🚨 ¡NUEVA PETICIÓN DESDE LA APP! 🚨")
-        print(f"Datos recibidos (QueryDict): {request.data}")
-        print("="*40 + "\n")
-        
+       
         image_obj = request.FILES.get('image')
         
         # --- EL ARREGLO: Buscamos las llaves exactas que manda Flutter ---

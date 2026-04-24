@@ -63,10 +63,16 @@ class AIService:
                     "init_image": img_final_bytes # Mandamos los bytes redimensionados
                 },
                 data={
-                    "image_strength": 0.45,
+                    "image_strength": 0.40,  # Bájalo de 0.45 a 0.40 para que respete más la foto original
                     "init_image_mode": "IMAGE_STRENGTH",
                     "text_prompts[0][text]": f"Professional interior design of a {room_data['tipo']}, with {room_data['piso']} floors and {room_data['pared']} walls, high quality, photorealistic, architectural lighting",
                     "text_prompts[0][weight]": 1,
+                    
+                    # --- EL REGAÑO A LA IA (PROMPT NEGATIVO) ---
+                    "text_prompts[1][text]": "adding furniture, changing layout, adding objects, new items, modifying room structure, artifacts",
+                    "text_prompts[1][weight]": -1, # El -1 significa "NO HAGAS ESTO"
+                    # -------------------------------------------
+                    
                     "cfg_scale": 7,
                     "samples": 1,
                     "steps": 30,
