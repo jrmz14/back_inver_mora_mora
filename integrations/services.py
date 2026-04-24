@@ -56,9 +56,9 @@ class AIService:
             processed_image = self.hf_client.image_to_image(
                 image=original_img_bytes,
                 prompt=prompt,
-                model="runwayml/stable-diffusion-v1-5", 
-                strength=0.5, # 0.5 es el equilibrio perfecto para no deformar
-                guidance_scale=7.5
+                model="black-forest-labs/FLUX.1-dev", # El nuevo juguete
+                strength=0.6, # FLUX aguanta un poquito más de fuerza sin deformar tanto
+                guidance_scale=3.5 # FLUX suele usar valores más bajos aquí que SD 1.5
             )
 
             # 4. Guardar el resultado (Este bloque ya lo tienes fino)
