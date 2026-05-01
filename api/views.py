@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from integrations.services import AIService
+from integrations.catalog_service import CatalogService
 import uuid
 
 class ProcessImageView(APIView):
@@ -52,3 +53,17 @@ class ProcessImageView(APIView):
             # Imprime el error real en tu terminal para que lo veas clarito
             print(f"❌ Error detectado en la vista: {str(e)}")
             return Response({"status": "error", "message": str(e)}, status=500)
+        
+
+class BrandListView(APIView):
+    def get(self, request):
+        service = CatalogService()
+        data = service.get_brands()
+        return Response(data)
+
+class MaterialsByBrandView(APIView):
+    def get(self, request):
+        brand_id = request.query_params.get('brand_id')
+        service = CatalogService()
+        data = service.get_materials_by_brand(brand_id)
+        return Response(data)
