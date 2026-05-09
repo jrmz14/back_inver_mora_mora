@@ -33,7 +33,7 @@ class SemanticSegmentationService:
         return cleaned
 
     def generate_advanced_map(self, image_path_or_bytes):
-        # 1. Cargar la imagen (Acepta bytes o ruta de archivo)
+       # 1. Cargar la imagen (Acepta bytes o ruta de archivo)
         if isinstance(image_path_or_bytes, bytes):
             image = Image.open(io.BytesIO(image_path_or_bytes)).convert("RGB")
         else:
@@ -56,16 +56,30 @@ class SemanticSegmentationService:
         )
         segmentation_map = logits_resized.argmax(dim=1)[0].cpu().numpy()
 
-        # --- LA CIRUGÍA EMPIEZA AQUÍ ---
+        # --- LA CIRUGÍA ANTI-ALUCINACIONES EMPIEZA AQUÍ ---
         
+        # 💡 Identificamos los estorbos comunes (Obstáculos)
+        # IDs de ADE20K: 7(cama), 12(persona), 14(puerta), 15(mesa), 19(gabinete), 31(silla), 32(sofá)
+        obstaculos_ids = [7, 12, 14, 15, 19, 31, 32]
+        raw_obstacle_mask = np.isin(segmentation_map, obstaculos_ids).astype(np.uint8)
+        
+        # Engordamos un poquito la máscara de los obstáculos para tener un "margen de seguridad"
+        kernel_seguridad = np.ones((15, 15), np.uint8)
+        safe_obstacle_mask = cv2.dilate(raw_obstacle_mask, kernel_seguridad, iterations=1)
+
         # A. Extraemos y LIMPIAMOS la máscara de la Pared (ID 0)
-        # 1 significa "es pared", 0 significa "no es pared"
         raw_wall_mask = (segmentation_map == 0).astype(np.uint8)
         clean_wall_mask = self._clean_mask(raw_wall_mask)
+        
+        # 🔨 EL CORTAFRÍO: Le restamos los obstáculos a la pared limpia
+        clean_wall_mask = cv2.subtract(clean_wall_mask, safe_obstacle_mask)
         
         # B. Extraemos y LIMPIAMOS la máscara del Piso (ID 3)
         raw_floor_mask = (segmentation_map == 3).astype(np.uint8)
         clean_floor_mask = self._clean_mask(raw_floor_mask)
+
+        # 🔨 EL CORTAFRÍO: Le restamos los obstáculos al piso también
+        clean_floor_mask = cv2.subtract(clean_floor_mask, safe_obstacle_mask)
 
         # Multiplicamos por 255 para que OpenCV la entienda en los pasos siguientes
         wall_mask = clean_wall_mask * 255
@@ -76,7 +90,7 @@ class SemanticSegmentationService:
         gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 50, 150)
 
-        # 4. Limpiar bordes: Solo nos interesan los bordes que Caen DENTRO de la pared limpia
+        # 4. Limpiar bordes: Solo nos interesan los bordes que Caen DENTRO de la pared limpia (ya sin obstáculos)
         wall_edges = cv2.bitwise_and(edges, edges, mask=wall_mask)
 
         # 5. Dilatamos los bordes para crear "muros de contención" gruesos entre paredes
@@ -112,7 +126,6 @@ class SemanticSegmentationService:
                 cY = int(M["m01"] / M["m00"])
                 
                 # OJO: Filtramos manchas muy pequeñas (ruido). 
-                # Si es muy chiquita, no le ponemos botón.
                 area = cv2.countNonZero(wall_instance_mask)
                 if area > 10000: # Puedes ajustar este número si descarta paredes buenas
                     color = np.random.randint(0, 255, size=3).tolist()
@@ -124,11 +137,11 @@ class SemanticSegmentationService:
                         "type": "wall",
                         "x": cX,
                         "y": cY,
-                        "color": color # Mandamos el color por si luego lo necesitamos para rastrear
+                        "color": color
                     })
                     contador_paredes += 1
 
-        # Analizamos el Piso (Máscara limpia que guardamos arriba)
+        # Analizamos el Piso (Máscara limpia y SIN obstáculos que guardamos arriba)
         floor_mask_binary = clean_floor_mask.astype(np.uint8)
         M_floor = cv2.moments(floor_mask_binary)
         if M_floor["m00"] > 0:

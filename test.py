@@ -1,4 +1,4 @@
-from integrations.segmentation_service import SemanticSegmentationService
+from integrations.services.segmentation_service import SemanticSegmentationService
 
 print("Cargando el cerebro de IA...")
 service = SemanticSegmentationService()

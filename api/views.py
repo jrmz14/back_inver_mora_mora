@@ -60,16 +60,11 @@ class SegmentImageView(APIView):
             return Response({"status": "error", "message": str(e)}, status=500)
 
 class ProcessImageView(APIView):
-    """
-    PASO 2: Recibe la URL de la original, el material y el tipo de superficie 
-    para aplicar el empapelado tosco (y próximamente el inpainting final).
-    """
     def post(self, request):
-        # NOTA: Asegúrate de que Flutter esté mandando 'original_url' y no 'image_url' 
-        # según lo que respondimos en el Paso 1.
         image_url = request.data.get('original_url') or request.data.get('image_url')
         material_url = request.data.get('material_url')
-        room_type = request.data.get('tipo', 'wall') # 'wall' o 'floor'
+        room_type = request.data.get('tipo', 'wall')
+        material_name = request.data.get('material_name', 'high quality seamless texture')
 
         if not image_url or not material_url:
             return Response({"error": "Faltan datos para la remodelación"}, status=400)
@@ -79,46 +74,49 @@ class ProcessImageView(APIView):
         ai_service = AIService()
 
         try:
-            # 1. Descargar la foto original desde Supabase directamente a la memoria
+            # 1. Descargas
             print(f"📥 Descargando original de: {image_url}")
             resp = requests.get(image_url)
-            image_bytes = resp.content
-
-            # Convertir esos bytes al formato de matrices que usa OpenCV (BGR)
-            img_array = np.asarray(bytearray(image_bytes), dtype=np.uint8)
+            img_array = np.asarray(bytearray(resp.content), dtype=np.uint8)
             original_img_cv = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-            # 2. Obtener la máscara binaria exacta (blanco y negro)
-            # Como tu modelo local B0 vuela, la generamos on-the-fly para la superficie exacta
-            print(f"🧠 Aislado máscara para: {room_type}")
-            binary_mask = seg_service.get_binary_mask(image_bytes, room_type)
+            print(f"🧠 Aislando máscara para: {room_type}")
+            binary_mask = seg_service.get_binary_mask(resp.content, room_type)
 
-            # 3. EL PINTOR: Aplicar el Papel Tapiz Tosco
-            print("🎨 Aplicando empapelado con la textura del catálogo...")
+            # 2. EL PINTOR MATEMÁTICO (El "underpainting" o base cruda)
+            print("🎨 Aplicando empapelado matemático (anti-alucinaciones)...")
             rough_img_cv = inpaint_service.apply_rough_wallpaper(
                 original_img_cv=original_img_cv, 
                 binary_mask=binary_mask, 
                 material_url=material_url, 
-                tile_size=250 # Ajusta este número si quieres que los azulejos se vean más grandes o pequeños
+                tile_size=250 
             )
 
-            # 4. (FUTURO PASO 3) 
-            # final_img_cv = inpaint_service.generate_final_render(rough_img_cv, binary_mask, "prompt")
+            # 3. EL DIRECTOR DE FOTOGRAFÍA (La IA refinando la base cruda)
+            print(f"✨ Refinando luces y sombras con IA para: {material_name}...")
+            final_img_cv = inpaint_service.apply_ai_refinement(
+                rough_img_cv=rough_img_cv,
+                binary_mask=binary_mask,
+                material_name=material_name,
+                room_type=room_type
+            )
 
-            # Por ahora (MVP), convertimos la imagen tosca de vuelta a bytes para subirla
-            _, buffer = cv2.imencode('.jpg', rough_img_cv)
-            rough_bytes = buffer.tobytes()
-            
-            result_name = f"rough_{uuid.uuid4()}.jpg"
-            result_url = ai_service.upload_to_supabase(rough_bytes, result_name)
+            # 4. Seguridad: Si la IA falló por saldo/red, mostramos la matemática (que ya es mejor que nada)
+            if final_img_cv is None:
+                print("⚠️ Mostrando la versión cruda matemática...")
+                final_img_cv = rough_img_cv
+
+            # 5. Guardar y mandar a Flutter
+            _, buffer = cv2.imencode('.jpg', final_img_cv)
+            result_url = ai_service.upload_to_supabase(buffer.tobytes(), f"render_{uuid.uuid4()}.jpg")
 
             return Response({
                 "status": "success",
-                "processed_url": result_url # Flutter mostrará la versión empapelada
+                "processed_url": result_url
             })
 
         except Exception as e:
-            print(f"❌ Error en ProcessImage: {str(e)}")
+            print(f"❌ Error general en ProcessImage: {str(e)}")
             return Response({"status": "error", "message": str(e)}, status=500)
 
 # Las vistas de catálogo se mantienen igual, son tu "menú" de materiales

@@ -20,16 +20,21 @@ class AIService:
 
     def upload_to_supabase(self, file_data, file_name):
         try:
+            # 💡 EL FIX: Leemos el final del nombre para saber qué etiqueta ponerle
+            # Si termina en .png, le decimos a Supabase que es un PNG puro. Si no, va como JPEG.
+            content_type = "image/png" if file_name.lower().endswith(".png") else "image/jpeg"
+
             self.supabase.storage.from_(self.bucket_name).upload(
                 path=file_name,
                 file=file_data,
-                file_options={"content-type": "image/jpeg"}
+                file_options={"content-type": content_type} # 👈 Ahora es dinámico
             )
             return self.supabase.storage.from_(self.bucket_name).get_public_url(file_name)
+            
         except Exception as e:
-            print(f"Error en Supabase: {e}")
+            print(f"❌ Error en Supabase: {e}")
             raise e
-
+        
     # AÑADIMOS EL PARÁMETRO mask_bytes
     def run_remodelacion_logica(self, imagen_url, mask_bytes, room_data):
         try:

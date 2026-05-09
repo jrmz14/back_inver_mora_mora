@@ -1,4 +1,3 @@
-# integrations/catalog_service.py
 import os
 import requests
 from requests.auth import HTTPBasicAuth
@@ -6,73 +5,131 @@ from requests.auth import HTTPBasicAuth
 class CatalogService:
     def __init__(self):
         self.use_mock = os.getenv("USE_WC_MOCK", "True") == "True"
-        self.wc_url = os.getenv("WC_URL")
+        self.wc_url = os.getenv("WC_URL") # Ejemplo: https://tusitio.com/wp-json/wc/v3
         self.ck = os.getenv("WC_CK")
         self.cs = os.getenv("WC_CS")
-        self.auth = HTTPBasicAuth(self.ck, self.cs) if self.ck and self.cs else None
 
     def get_brands(self):
         if self.use_mock:
-            return [
-                {"id": 10, "name": "Cerámica Italia"},
-                {"id": 11, "name": "Corona"},
-                {"id": 12, "name": "Mora Mora"},
-                {"id": 13, "name": "Vencerámica"},
-            ]
-        
+            return [{"id": 10, "name": "Mock"}]
+
+        print(f"🚀 [Django] Consultando la tabla maestra de marcas (product_brand)...")
         try:
-            url = f"{self.wc_url}/products/categories"
-            response = requests.get(url, auth=self.auth, params={'hide_empty': False})
+            # 💡 APUNTAMOS AL ENDPOINT DE LA TAXONOMÍA DIRECTAMENTE
+            # Usamos /wp-json/wp/v2/product_brand que es el estándar de WP
+            params = {
+                'consumer_key': self.ck,
+                'consumer_secret': self.cs,
+                'per_page': 100,
+                'hide_empty': False # 👈 Esto trae las marcas aunque no tengan productos aún
+            }
+            
+            # Cambiamos la ruta de /wc/v3/products a /wp/v2/product_brand
+            base_url = self.wc_url.split('/wp-json')[0]
+            url = f"{base_url}/wp-json/wp/v2/product_brand"
+            
+            response = requests.get(url, params=params, verify=False)
+            
             if response.status_code == 200:
-                return [{"id": c['id'], "name": c['name']} for c in response.json()]
-            return []
-        except Exception:
+                raw_brands = response.json()
+                # WordPress devuelve 'id' y 'name' por defecto en las taxonomías
+                brands_list = [{"id": b['id'], "name": b['name']} for b in raw_brands]
+                
+                print(f"✅ [Django] ¡Coronamos! Se encontraron las {len(brands_list)} marcas reales.")
+                return brands_list
+            else:
+                # 💡 PLAN B: Si el endpoint de arriba falla, probamos con el de WC
+                print(f"⚠️ [Django] Endpoint v2 falló, probando con ruta alternativa...")
+                url_alt = f"{self.wc_url}/products/brands"
+                response = requests.get(url_alt, params=params, verify=False)
+                if response.status_code == 200:
+                    return [{"id": b['id'], "name": b['name']} for b in response.json()]
+                
+                return []
+        except Exception as e:
+            print(f"💥 [Django] Excepción: {e}")
             return []
 
     def get_materials_by_brand(self, brand_id):
-        # 🚩 LOG DE GUERRA
-        print(f"🐍 [Django] Procesando materiales para ID: {brand_id}")
+        print(f"🐍 [Django] Procesando materiales para Marca ID: {brand_id}")
 
         if self.use_mock:
             return self._get_mock_materials(brand_id)
 
         try:
-            # 1. Preparamos los parámetros dinámicos
-            params = {'per_page': 50}
+            params = {
+                'per_page': 100,
+                'consumer_key': self.ck,
+                'consumer_secret': self.cs,
+                'status': 'publish'
+            }
             
-            # 💡 SI NO ES 'all', filtramos por categoría en WooCommerce
-            if brand_id and brand_id != 'all':
-                params['category'] = brand_id
-                print(f"🎯 [Django] Filtrando API real por categoría: {brand_id}")
-
-            response = requests.get(f"{self.wc_url}/products", auth=self.auth, params=params)
+            # Pedimos TODOS los productos a WooCommerce
+            response = requests.get(f"{self.wc_url}/products", params=params)
             
             if response.status_code == 200:
-                return self._process_wc_products(response.json())
+                raw_data = response.json()
+                
+                # 💡 FILTRAMOS POR MARCA EN PYTHON
+                if brand_id and str(brand_id) != 'all':
+                    filtered_data = [
+                        p for p in raw_data 
+                        if any(str(b.get('id', '')) == str(brand_id) for b in p.get('brands', []))
+                    ]
+                else:
+                    filtered_data = raw_data
+                    
+                return self._process_wc_products(filtered_data)
+                
             return {"Pisos": [], "Pared": []}
         except Exception as e:
-            print(f"❌ [DJANGO] Error: {e}")
+            print(f"❌ [DJANGO] Error consultando materiales: {e}")
             return {"Pisos": [], "Pared": []}
 
     def _process_wc_products(self, products):
-        """Lógica de clasificación dinámica"""
-        catalog = {"Pisos": [], "Pared": []}
+        """Lógica dinámica: usa las categorías reales de WooCommerce"""
+        # 1. Ya no inicializamos con "Pisos" y "Pared", empezamos vacío 💡
+        catalog = {}
+        
         for p in products:
-            material = {
-                "id": p['id'],
-                "name": p['name'],
-                "prompt": p.get('short_description', '').replace('<p>', '').replace('</p>', '').strip() or "modern surface",
-                "image_url": p['images'][0]['src'] if p['images'] else ""
-            }
-            
-            # Clasificación por tags o nombre
-            tags = [t['name'].lower() for t in p.get('tags', [])]
-            name_lower = p['name'].lower()
-            
-            if any(x in tags for x in ["piso", "floor"]) or "piso" in name_lower:
-                catalog["Pisos"].append(material)
-            else:
-                catalog["Pared"].append(material)
+            try:
+                # Extracción de imagen
+                img_url = p['images'][0]['src'] if p.get('images') else "https://via.placeholder.com/600x400?text=Sin+Imagen"
+
+                # Extracción de marca
+                marca_nombre = "Genérica"
+                brands = p.get('brands') or p.get('product_brand') or []
+                if brands:
+                    marca_nombre = brands[0]['name']
+
+                # 💡 LA MAGIA: Extraer la categoría REAL de WooCommerce
+                # Si el producto no tiene categoría, le ponemos "General"
+                categorias_wc = p.get('categories', [])
+                cat_name = categorias_wc[0]['name'] if categorias_wc else "General"
+
+                # Empacamos el material
+                material = {
+                    "id": p['id'],
+                    "name": p['name'],
+                    "prompt": p.get('short_description', '').replace('<p>', '').replace('</p>', '').replace('\n', '').strip() or "modern surface texture",
+                    "image_url": img_url,
+                    "description": p.get('description', ''),
+                    "price": p.get('price', '0.00'),
+                    "unit": "m²",
+                    "category": cat_name, #  Ahora lleva el nombre real (ej: "Baños")
+                    "brand": marca_nombre
+                }
+                
+                #  Agregamos al diccionario dinámicamente
+                if cat_name not in catalog:
+                    catalog[cat_name] = []
+                
+                catalog[cat_name].append(material)
+                    
+            except Exception as e:
+                print(f"⏩ [Django] Error en producto {p.get('id')}: {e}")
+                continue 
+                
         return catalog
 
     def _get_mock_materials(self, brand_id):
