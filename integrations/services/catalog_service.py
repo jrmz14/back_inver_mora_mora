@@ -50,38 +50,64 @@ class CatalogService:
             print(f"💥 [Django] Excepción: {e}")
             return []
 
-    def get_materials_by_brand(self, brand_id):
-        print(f"🐍 [Django] Procesando materiales para Marca ID: {brand_id}")
+    def get_materials_by_brand(self, brand_id, category_id=None, page=None):
+        print(f"🐍 [Django] Procesando materiales para Marca: {brand_id} | Categoría: {category_id} | Página: {page}")
 
         if self.use_mock:
             return self._get_mock_materials(brand_id)
 
         try:
             params = {
-                'per_page': 100,
+                'per_page': 100 if not page else 20, # 100 para traer todo rápido, 20 si usas scroll infinito
                 'consumer_key': self.ck,
                 'consumer_secret': self.cs,
                 'status': 'publish'
             }
             
-            # Pedimos TODOS los productos a WooCommerce
-            response = requests.get(f"{self.wc_url}/products", params=params)
+            # 💡 EL FRANCQTIRADOR: Filtramos en WooCommerce directo si nos pasas el ID
+            if category_id:
+                params['category'] = category_id
+
+            all_raw_data = []
             
-            if response.status_code == 200:
-                raw_data = response.json()
+            # 💡 LA BIFURCACIÓN: ¿Traemos todo o solo una página?
+            if page:
+                # MODO SCROLL INFINITO: Solo traemos la página solicitada
+                params['page'] = page
+                print(f"🚀 [Django] Pidiendo solo la página {page} a WooCommerce...")
+                response = requests.get(f"{self.wc_url}/products", params=params)
                 
-                # 💡 FILTRAMOS POR MARCA EN PYTHON
-                if brand_id and str(brand_id) != 'all':
-                    filtered_data = [
-                        p for p in raw_data 
-                        if any(str(b.get('id', '')) == str(brand_id) for b in p.get('brands', []))
-                    ]
-                else:
-                    filtered_data = raw_data
-                    
-                return self._process_wc_products(filtered_data)
+                if response.status_code == 200:
+                    all_raw_data = response.json()
+            else:
+                # MODO CARGA RÁPIDA (CON FILTRO): Traemos todas las páginas, pero como está 
+                # filtrado por categoría, serán poquitas y cargará en segundos.
+                params['page'] = 1
+                print(f"🚀 [Django] Descargando catálogo completo (optimizado)...")
+                while True:
+                    response = requests.get(f"{self.wc_url}/products", params=params)
+                    if response.status_code == 200:
+                        page_data = response.json()
+                        if not page_data: break 
+                        all_raw_data.extend(page_data)
+                        
+                        total_pages = int(response.headers.get('X-WP-TotalPages', 1))
+                        if params['page'] >= total_pages: break 
+                        params['page'] += 1 
+                    else:
+                        break
+
+            # 💡 FILTRAMOS POR MARCA EN PYTHON
+            if brand_id and str(brand_id) != 'all':
+                filtered_data = [
+                    p for p in all_raw_data 
+                    if any(str(b.get('id', '')) == str(brand_id) for b in p.get('brands', []))
+                ]
+            else:
+                filtered_data = all_raw_data
                 
-            return {"Pisos": [], "Pared": []}
+            return self._process_wc_products(filtered_data)
+            
         except Exception as e:
             print(f"❌ [DJANGO] Error consultando materiales: {e}")
             return {"Pisos": [], "Pared": []}

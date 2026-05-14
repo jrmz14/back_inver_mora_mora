@@ -1,28 +1,74 @@
-import os
 import cv2
 import numpy as np
 import urllib.request
-import requests
-import base64
-import io
 
 class InpaintingService:
     def __init__(self):
-        self.api_key = os.getenv("STABILITY_KEY")
+        # 💡 Nos libramos de las APIs por ahora. Motor 100% local y matemático.
+        pass
+
+    def _recortar_bordes_blancos(self, texture_cv):
+        """
+        ✂️ EL BISTURÍ: Quita el borde blanco del producto de WooCommerce.
+        """
+        gray = cv2.cvtColor(texture_cv, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
         
-        # 💡 EL MOTOR SAGRADO DE REFINADO (Img2Img con Máscara V1)
-        # Usamos SDXL 1.0 para calidad máxima y refinado estricto
-        engine_id = "stable-diffusion-xl-1024-v1-0"
-        self.api_url = f"https://api.stability.ai/v1/generation/{engine_id}/image-to-image"
+        coords = cv2.findNonZero(thresh)
+        if coords is not None:
+            x, y, w, h = cv2.boundingRect(coords)
+            recorte = texture_cv[y:y+h, x:x+w]
+            print(f"✂️ [OpenCV] Fondo blanco eliminado. Nuevo tamaño: {recorte.shape[:2]}")
+            return recorte
+            
+        return texture_cv
+
+    def _limpiar_mascara(self, binary_mask):
+        """
+        🧼 LA ASPIRADORA: Elimina el ruido de la segmentación.
+        Si Segformer detecta 16 paredes de cristal, esto las une o borra la basura
+        y se queda solo con las estructuras masivas.
+        """
+        # 1. Suavizamos y conectamos pedazos rotos (Morphological Close)
+        kernel = np.ones((15, 15), np.uint8)
+        closed_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel)
+        
+        # 2. Borramos manchitas aisladas (Morphological Open)
+        opened_mask = cv2.morphologyEx(closed_mask, cv2.MORPH_OPEN, kernel)
+
+        # 3. FILTRO DE ÁREA: Buscamos los bloques y medimos su tamaño
+        contours, _ = cv2.findContours(opened_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        clean_mask = np.zeros_like(opened_mask)
+        
+        if not contours:
+            return opened_mask
+
+        # Ordenamos los pedazos de mayor a menor tamaño
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        
+        # Definimos el umbral: Todo pedazo que sea menor al 3% del tamaño de la foto, se borra.
+        total_area = opened_mask.shape[0] * opened_mask.shape[1]
+        min_area_threshold = total_area * 0.03 
+
+        bloques_guardados = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > min_area_threshold:
+                # Si es un bloque grande (pared principal o piso), lo dibujamos
+                cv2.drawContours(clean_mask, [cnt], -1, 255, thickness=cv2.FILLED)
+                bloques_guardados += 1
+            else:
+                # Como están ordenados de mayor a menor, si este no pasó, los demás tampoco
+                break 
+
+        print(f"🧼 [OpenCV] Máscara purificada. De {len(contours)} fragmentos, nos quedamos con los {bloques_guardados} más grandes.")
+        return clean_mask
 
     def apply_rough_wallpaper(self, original_img_cv, binary_mask, material_url, tile_size=300):
         """
-        PASO 1 (El Tractor): Arma el mosaico matemático tosco con EL MATERIAL REAL.
-        Anti-alucinaciones.
+        🚀 EL MOTOR DE RENDER: Tiling matemático, seguro y ultra rápido.
         """
         try:
-            # 💡 ASEGURAR QUE ESTAMOS USANDO EL MATERIAL REAL DEL CATÁLOGO
-            # Si material_url viene de Flutter con tu foto de mosaico real, esto lo descargará.
             print(f"📥 Descargando textura real del catálogo: {material_url}")
             req = urllib.request.urlopen(material_url)
             arr = np.asarray(bytearray(req.read()), dtype=np.uint8)
@@ -31,89 +77,36 @@ class InpaintingService:
             if texture is None:
                 raise Exception("No se pudo decodificar la imagen del material real")
 
-            # Redimensionamos la textura al tamaño del azulejo
+            # 1. Quitamos los marcos blancos del producto
+            texture = self._recortar_bordes_blancos(texture)
+
+            # 2. Redimensionamos al tamaño del azulejo/cerámica
             texture = cv2.resize(texture, (tile_size, tile_size))
-
-            # Creamos el lienzo del tamaño de la foto original
             h_img, w_img, _ = original_img_cv.shape
-            tiled_canvas = np.zeros((h_img, w_img, 3), dtype=np.uint8)
 
-            # Llenamos el lienzo repitiendo la textura REAL (Tiling)
-            for y in range(0, h_img, tile_size):
-                for x in range(0, w_img, tile_size):
-                    h_tile = min(tile_size, h_img - y)
-                    w_tile = min(tile_size, w_img - x)
-                    tiled_canvas[y:y+h_tile, x:x+w_tile] = texture[0:h_tile, 0:w_tile]
+            # 3. Creamos el tapiz repitiendo la textura rapidísimo con Numpy
+            reps_y = int(np.ceil(h_img / tile_size))
+            reps_x = int(np.ceil(w_img / tile_size))
+            tiled_canvas = np.tile(texture, (reps_y, reps_x, 1))
+            tiled_canvas = tiled_canvas[:h_img, :w_img]
 
-            # Operación de recorte con la máscara
+            # 4. Ajustamos la máscara original al tamaño exacto de la foto
             if len(binary_mask.shape) == 2:
                 mask_3d = cv2.cvtColor(binary_mask, cv2.COLOR_GRAY2BGR)
             else:
                 mask_3d = binary_mask
 
-            # LA MEZCLA: Donde la máscara es blanca (255), ponemos EL MOSAICO REAL.
-            rough_result = np.where(mask_3d == 255, tiled_canvas, original_img_cv)
+            if mask_3d.shape != original_img_cv.shape:
+                mask_3d = cv2.resize(mask_3d, (w_img, h_img), interpolation=cv2.INTER_NEAREST)
+
+            # 5. 💡 PURIFICAMOS LA MÁSCARA PARA QUITAR LAS 16 PAREDES FANTASMAS
+            mask_limpia = self._limpiar_mascara(mask_3d[:, :, 0]) # Le pasamos 1 solo canal al purificador
+            mask_limpia_3d = cv2.cvtColor(mask_limpia, cv2.COLOR_GRAY2BGR)
+
+            # 6. LA MEZCLA FINAL CON LA MÁSCARA LIMPIA
+            rough_result = np.where(mask_limpia_3d == 255, tiled_canvas, original_img_cv)
             return rough_result
 
         except Exception as e:
             print(f"❌ Error en mosaico matemático crudo: {e}")
             return original_img_cv
-
-    def apply_ai_refinement(self, rough_img_cv, binary_mask, material_name, room_type="room"):
-        print(f"✨ Refinando con la técnica del 35% (IMAGE_STRENGTH)...")
-        try:
-            # 1. Ajuste de dimensiones para SDXL (768x1344 es el estándar para móviles vertical)
-            target_size = (768, 1344)
-            rough_resized = cv2.resize(rough_img_cv, target_size, interpolation=cv2.INTER_LANCZOS4)
-            mask_resized = cv2.resize(binary_mask, target_size, interpolation=cv2.INTER_NEAREST)
-
-            _, init_buffer = cv2.imencode('.png', rough_resized)
-            _, mask_buffer = cv2.imencode('.png', mask_resized)
-
-            prompt = f"Clean photography of {material_name} {room_type}, soft shadows, realistic lighting, architectural detail"
-            
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Accept": "application/json"
-            }
-
-            files = {
-                "init_image": init_buffer.tobytes(),
-                #"mask_image": mask_buffer.tobytes(),
-            }
-
-            # 💡 BASADO EN TU CAPTURA DE LA DOCS:
-            data = {
-                "init_image_mode": "IMAGE_STRENGTH", # Cambiamos el modo
-                "image_strength": "0.85",            # Usamos el valor mágico del 35%
-                #"mask_source": "MASK_IMAGE_WHITE",
-                "text_prompts[0][text]": prompt,
-                "text_prompts[0][weight]": "1",
-                "cfg_scale": "7",
-                "samples": "1",
-                "steps": "30",
-                "style_preset": "photographic"
-            }
-
-            response = requests.post(self.api_url, headers=headers, files=files, data=data)
-
-            if response.status_code == 200:
-                res_json = response.json()
-                img_b64 = res_json["artifacts"][0]["base64"]
-                img_bytes = base64.b64decode(img_b64)
-                
-                np_arr = np.frombuffer(img_bytes, np.uint8)
-                ai_result_cv = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-                # Re-escalamos de vuelta a la resolución original
-                h_orig, w_orig = rough_img_cv.shape[:2]
-                final_output = cv2.resize(ai_result_cv, (w_orig, h_orig), interpolation=cv2.INTER_LANCZOS4)
-                
-                return final_output
-            else:
-                print(f"⚠️ Error de IA (siguiendo la docs): {response.text}")
-                return None
-
-        except Exception as e:
-            print(f"❌ Excepción en el refinador: {e}")
-            return None

@@ -64,7 +64,7 @@ class ProcessImageView(APIView):
         image_url = request.data.get('original_url') or request.data.get('image_url')
         material_url = request.data.get('material_url')
         room_type = request.data.get('tipo', 'wall')
-        material_name = request.data.get('material_name', 'high quality seamless texture')
+        # Ya no necesitamos material_name porque no hay prompt de IA
 
         if not image_url or not material_url:
             return Response({"error": "Faltan datos para la remodelación"}, status=400)
@@ -83,33 +83,21 @@ class ProcessImageView(APIView):
             print(f"🧠 Aislando máscara para: {room_type}")
             binary_mask = seg_service.get_binary_mask(resp.content, room_type)
 
-            # 2. EL PINTOR MATEMÁTICO (El "underpainting" o base cruda)
-            print("🎨 Aplicando empapelado matemático (anti-alucinaciones)...")
-            rough_img_cv = inpaint_service.apply_rough_wallpaper(
+            # 2. EL PINTOR MATEMÁTICO (¡Ahora es el rey absoluto!)
+            print("🎨 Aplicando empapelado matemático (100% OpenCV)...")
+            final_img_cv = inpaint_service.apply_rough_wallpaper(
                 original_img_cv=original_img_cv, 
                 binary_mask=binary_mask, 
                 material_url=material_url, 
                 tile_size=250 
             )
 
-            # 3. EL DIRECTOR DE FOTOGRAFÍA (La IA refinando la base cruda)
-            print(f"✨ Refinando luces y sombras con IA para: {material_name}...")
-            final_img_cv = inpaint_service.apply_ai_refinement(
-                rough_img_cv=rough_img_cv,
-                binary_mask=binary_mask,
-                material_name=material_name,
-                room_type=room_type
-            )
-
-            # 4. Seguridad: Si la IA falló por saldo/red, mostramos la matemática (que ya es mejor que nada)
-            if final_img_cv is None:
-                print("⚠️ Mostrando la versión cruda matemática...")
-                final_img_cv = rough_img_cv
-
-            # 5. Guardar y mandar a Flutter
+            # 3. Guardar y mandar a Flutter directamente
+            print("💾 Subiendo resultado al Storage...")
             _, buffer = cv2.imencode('.jpg', final_img_cv)
             result_url = ai_service.upload_to_supabase(buffer.tobytes(), f"render_{uuid.uuid4()}.jpg")
 
+            print(f"✅ Render completado exitosamente: {result_url}")
             return Response({
                 "status": "success",
                 "processed_url": result_url
@@ -127,6 +115,18 @@ class BrandListView(APIView):
 
 class MaterialsByBrandView(APIView):
     def get(self, request):
-        brand_id = request.query_params.get('brand_id')
+        brand_id = request.query_params.get('brand_id', 'all')
+        
+        # 💡 ATRAPAMOS LOS NUEVOS PARÁMETROS DE FLUTTER
+        category_id = request.query_params.get('category_id') 
+        page = request.query_params.get('page')
+
         service = CatalogService()
-        return Response(service.get_materials_by_brand(brand_id))
+        
+        # Se los pasamos al motor
+        data = service.get_materials_by_brand(
+            brand_id=brand_id, 
+            category_id=category_id, 
+            page=page
+        )
+        return Response(data)
