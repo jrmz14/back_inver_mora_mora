@@ -130,3 +130,8 @@ class MaterialsByBrandView(APIView):
             page=page
         )
         return Response(data)
+    
+class CategoryListView(APIView):
+    def get(self, request):
+        service = CatalogService()
+        return Response(service.get_categories())

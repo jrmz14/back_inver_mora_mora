@@ -1,0 +1,188 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <style>
+        /* 🧼 1. LIMPIEZA DE ESPACIOS Y RECENT ACTIONS */
+        #content-related, .col-lg-3.col-12 {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        
+        .col-lg-9.col-12, .col-md-9.col-sm-12 {
+            flex: 0 0 100% !important;
+            max-width: 100% !important;
+        }
+        
+        /* 🎨 2. DISEÑO DEL DASHBOARD PROFESIONAL */
+        .custom-dashboard {
+            margin: 0px 5px 20px 5px;
+            display: block !important;
+        }
+
+        /* Banner de Bienvenida */
+        .welcome-banner {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border-left: 5px solid #38bdf8;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        .welcome-banner h2 {
+            color: #ffffff !important;
+            margin-top: 0;
+            font-weight: 600;
+            font-size: 24px;
+        }
+        .welcome-banner p {
+            color: #94a3b8;
+            margin-bottom: 0;
+            font-size: 15px;
+        }
+
+        /* Grid de Tarjetas */
+        .tiles-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        /* Estilo de las Tarjetas */
+        .custom-tile {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+        }
+        .custom-tile:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 20px rgba(0,0,0,0.4);
+            border-color: #38bdf8;
+        }
+        
+        /* Iconos gigantes */
+        .tile-icon {
+            font-size: 50px;
+            margin-bottom: 15px;
+            transition: transform 0.3s ease;
+        }
+        .brand-tile .tile-icon { color: #f59e0b; }
+        .material-tile .tile-icon { color: #10b981; }
+        
+        .custom-tile:hover .tile-icon {
+            transform: scale(1.1);
+        }
+
+        .tile-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+        .tile-desc {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-bottom: 25px;
+            min-height: 42px;
+            line-height: 1.5;
+        }
+
+        /* Botones de acción */
+        .tile-btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .tile-btn {
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none !important;
+            transition: background 0.2s;
+            display: inline-block;
+        }
+        .btn-view {
+            background: #334155;
+            color: #ffffff !important;
+        }
+        .btn-view:hover { background: #475569; }
+        
+        .btn-add-brand { background: #d97706; color: #ffffff !important; }
+        .btn-add-brand:hover { background: #b45309; }
+        
+        .btn-add-mat { background: #059669; color: #ffffff !important; }
+        .btn-add-mat:hover { background: #047857; }
+
+        #result_list th.action-checkbox-column, 
+        #result_list td.action-checkbox {
+            display: none !important;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="custom-dashboard" id="mora-mora-dashboard">
+        <div class="welcome-banner">
+            <h2>¡Hola, Administrador! 👋</h2>
+            <p>Desde este panel puedes gestionar la base de datos de tu catálogo de forma segura. Recuerda que todos los cambios que realices impactarán en tiempo real en la aplicación móvil.</p>
+        </div>
+
+        <div class="tiles-grid">
+            
+            <div class="custom-tile brand-tile">
+                <div class="tile-icon"><i class="fas fa-tags"></i></div>
+                <div class="tile-title">Marcas de Fábrica</div>
+                <div class="tile-desc">Registra o edita los nombres de las fábricas (ej: Cerámicas Italia) y sube sus logotipos oficiales.</div>
+                <div class="tile-btn-group">
+                    <a href="/admin/catalog/brand/" class="tile-btn btn-view"><i class="fas fa-list"></i> Ver Lista</a>
+                    <a href="/admin/catalog/brand/add/" class="tile-btn btn-add-brand"><i class="fas fa-plus"></i> Añadir</a>
+                </div>
+            </div>
+            <div class="custom-tile category-tile">
+                <div class="tile-icon" style="color: #38bdf8;"><i class="fas fa-folder-open"></i></div>
+                <div class="tile-title">Categorías de Productos</div>
+                <div class="tile-desc">Crea y organiza las secciones del catálogo (ej: Porcelanatos, Cerámicas, Guardas) para los filtros de la App.</div>
+                <div class="tile-btn-group">
+                    <a href="/admin/catalog/category/" class="tile-btn btn-view"><i class="fas fa-list"></i> Ver Lista</a>
+                    <a href="/admin/catalog/category/add/" class="tile-btn" style="background: #0284c7; color: #ffffff !important;"><i class="fas fa-plus"></i> Añadir</a>
+                </div>
+            </div>
+
+            <div class="custom-tile material-tile">
+                <div class="tile-icon"><i class="fas fa-th"></i></div>
+                <div class="tile-title">Catálogo de Materiales</div>
+                <div class="tile-desc">Sube los pisos y paredes, define precios por m² y añade las imágenes de vitrina y las texturas para la reconstruccion.</div>
+                <div class="tile-btn-group">
+                    <a href="/admin/catalog/material/" class="tile-btn btn-view"><i class="fas fa-list"></i> Ver Catálogo</a>
+                    <a href="/admin/catalog/material/add/" class="tile-btn btn-add-mat"><i class="fas fa-plus"></i> Añadir</a>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    {{ block.super }}
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // Buscamos todas las cajas (cards) que genera Jazzmin por defecto
+            const cards = document.querySelectorAll('.card');
+            
+            cards.forEach(card => {
+                // Si la caja contiene la palabra "Catalog" o no tiene nuestro ID personalizado, para el piso!
+                if (!card.querySelector('#mora-mora-dashboard') && card.id !== 'mora-mora-dashboard') {
+                    // Ocultamos cualquier contenedor que no sea nuestro dashboard premium
+                    if(card.classList.contains('card-primary') || card.querySelector('.table') || card.innerText.includes('Catalog')) {
+                        card.style.setProperty('display', 'none', 'important');
+                    }
+                }
+            });
+        });
+    </script>
+{% endblock %}

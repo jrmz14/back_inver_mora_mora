@@ -57,6 +57,7 @@ ALLOWED_HOSTS = ['*']
 # Application definition
 
 INSTALLED_APPS = [
+    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -68,9 +69,10 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     
-    # Tus Apps (El equipo de la Estrella de la Muerte)
+    # Apps 
     'api',
     'integrations',
+    'catalog',
 ]
 
 MIDDLEWARE = [
@@ -90,7 +92,7 @@ ROOT_URLCONF = 'backend_interior.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -155,7 +157,117 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') # Donde Django reunirá todo
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),
+]
+if DEBUG:
+    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
+else:
+    # Solo usamos WhiteNoise cuando el sistema esté subido a producción (Render)
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Permite todas las fuentes (solo para desarrollo)
 CORS_ALLOW_ALL_ORIGINS = True
+
+
+JAZZMIN_SETTINGS = {
+    # Título de la ventana del navegador
+    "site_title": "Mora Mora Admin",
+    # Título en la pantalla de login (puedes poner texto largo)
+    "site_header": "Inversiones Mora Mora",
+    # Texto de la marca arriba a la izquierda en el panel
+    "site_brand": "Mora Mora Catálogo",
+    # Mensaje de bienvenida en el login
+    "welcome_sign": "Bienvenido al Gestor de Catálogo",
+    # Copyright en el pie de página
+    "copyright": "Inversiones Mora Mora Ltda",
+    
+    # DISEÑO DE LA BARRA LATERAL ÉPICO
+    "search_model": ["catalog.Material"], # Barra de búsqueda rápida arriba
+    
+    #  LA MAGIA: Ocultar los modelos de usuarios y grupos de Django para el cliente
+    "hide_models": ["auth.group", "auth.user"],
+    
+    #  Customizar los íconos del menú lateral (Usamos FontAwesome)
+   "icons": {
+        "catalog.Brand": "fas fa-tags",
+        "catalog.Category": "fas fa-folder-open",
+        "catalog.Material": "fas fa-th",
+    },
+
+    "topmenu_links": [
+        {"name": "Inicio", "url": "admin:index", "permissions": ["auth.view_user"]},
+        {"name": "Gestionar Marcas", "model": "catalog.Brand", "icon": "fas fa-tags"},
+        {"name": "Gestionar Categorías", "model": "catalog.Category", "icon": "fas fa-folder-open"}, 
+        {"name": "Gestionar Catálogo", "model": "catalog.Material", "icon": "fas fa-th"},
+    ],
+    # DISEÑO EN TARJETAS PARA EL DASHBOARD CENTRAL
+    "custom_links": {
+        "catalog": [
+            {
+                "name": "Agregar Nueva Marca", 
+                "url": "admin:catalog_brand_add", 
+                "icon": "fas fa-plus-circle",
+            },
+            {
+                "name": "Agregar Nuevo Material", 
+                "url": "admin:catalog_material_add", 
+                "icon": "fas fa-plus-circle",
+            },
+        ]
+    },
+    "changeform_format": "horizontal_tabs", 
+    
+    # Si quieres que dentro del formulario los botones de acción se queden fijos abajo al hacer scroll
+    "changeform_format_overrides": {"auth.user": "collapsible", "auth.group": "collapsible"},
+
+    # QUITAR EL ACCIONES RECIENTES (Recent Actions)
+    # Cambiamos esto a False para limpiar el lado derecho del Dashboard
+    "show_ui_builder": False, # Apaga el configurador en vivo si estaba activo
+    
+    # Esta opción oculta la columna de la derecha con los logs de modificaciones
+    "changeform_format": "horizontal_tabs",
+    
+    # Nombres amigables para los menús
+    "order_with_respect_to": ["catalog.Brand", "catalog.Material"],
+    
+    # Detalles visuales extra
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "theme": "default", # Puedes cambiar a "flatly", "darkly", "cosmo", etc.
+}
+
+# Ajustes finos de colores (Opcional, para que se vea más moderno)
+JAZZMIN_UI_TWEAKS = {
+    "navbar_small_text": False,
+    "footer_small_text": False,
+    "body_small_text": False,
+    "brand_small_text": False,
+    "brand_colour": "navbar-dark",
+    "accent": "accent-primary",
+    "navbar": "navbar-dark bg-dark", # Barra superior elegante en oscuro
+    "no_navbar_border": False,
+    "navbar_fixed": True,
+    "layout_options": {
+        "sidebar_fixed": True, # Barra lateral se queda fija al hacer scroll
+    },
+    "sidebar": "sidebar-dark-primary", # Menú lateral oscuro pro
+    "sidebar_nav_small_text": False,
+    "sidebar_disable_expand": False,
+    "sidebar_nav_child_indent": False,
+    "sidebar_nav_compact_style": False,
+    "sidebar_nav_legacy_style": False,
+    "sidebar_nav_flat_style": False,
+    "theme": "simplex", # Un tema limpio con tipografía bonita y espacios blancos amplios
+    "dark_mode_theme": None,
+    "button_classes": {
+        "primary": "btn-primary",
+        "secondary": "btn-secondary",
+        "info": "btn-info",
+        "warning": "btn-warning",
+        "danger": "btn-danger",
+        "success": "btn-success"
+    },
+
+    "custom_css": "admin/css/custom_admin.css",
+}
