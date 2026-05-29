@@ -6,16 +6,24 @@ import base64
 from PIL import Image
 from supabase import create_client
 
+from backend_interior import settings
+
 class AIService:
     def __init__(self):
-        self.supabase_url = os.getenv("SUPABASE_URL")
-        self.supabase_key = os.getenv("SUPABASE_KEY")
-        self.bucket_name = os.getenv("SUPABASE_BUCKET_NAME", "remodelaciones")
+        # 🛡️ BLINDAJE EN RENDER: Jalamos desde settings.py con os.getenv de respaldo
+        self.supabase_url = getattr(settings, "SUPABASE_URL", os.getenv("SUPABASE_URL"))
+        self.supabase_key = getattr(settings, "SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
+        self.bucket_name = getattr(settings, "SUPABASE_BUCKET_NAME", os.getenv("SUPABASE_BUCKET_NAME", "remodelaciones"))
+        
+        # Validación de seguridad para que el log te avise si falta algo en Render
+        if not self.supabase_key or not self.supabase_url:
+            raise Exception("❌ Error Crítico: No se pudieron cargar las credenciales de Supabase en el servidor.")
+            
         self.supabase = create_client(self.supabase_url, self.supabase_key)
         
-        self.stability_key = os.getenv("STABILITY_KEY")
+        # Hacemos lo mismo con Stability AI por si acaso
+        self.stability_key = getattr(settings, "STABILITY_KEY", os.getenv("STABILITY_KEY"))
         self.api_host = "https://api.stability.ai"
-        # Mantenemos el modelo pro
         self.engine_id = "stable-diffusion-xl-1024-v1-0"
 
     def upload_to_supabase(self, file_data, file_name):

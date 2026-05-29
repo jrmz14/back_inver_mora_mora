@@ -49,8 +49,8 @@ SECRET_KEY = get_secret_key()
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
-
-
+SUPABASE_URL = env('SUPABASE_URL', default=None)
+SUPABASE_KEY = env('SUPABASE_KEY', default=None)
 
 
 
