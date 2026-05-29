@@ -10,15 +10,21 @@ from backend_interior import settings
 
 class AIService:
     def __init__(self):
-        # 🛡️ BLINDAJE EN RENDER: Jalamos desde settings.py con os.getenv de respaldo
-        self.supabase_url = getattr(settings, "SUPABASE_URL", os.getenv("SUPABASE_URL"))
-        self.supabase_key = getattr(settings, "SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
-        self.bucket_name = getattr(settings, "SUPABASE_BUCKET_NAME", os.getenv("SUPABASE_BUCKET_NAME", "remodelaciones"))
+       def __init__(self):
+        # 1. Obtenemos las variables crudas
+        raw_url = getattr(settings, "SUPABASE_URL", os.getenv("SUPABASE_URL"))
+        raw_key = getattr(settings, "SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
         
-        # Validación de seguridad para que el log te avise si falta algo en Render
-        if not self.supabase_key or not self.supabase_url:
-            raise Exception("❌ Error Crítico: No se pudieron cargar las credenciales de Supabase en el servidor.")
-            
+        # 2. Verificamos que al menos existan
+        if not raw_url or not raw_key:
+            raise Exception("❌ Faltan las credenciales de Supabase en el entorno.")
+
+        # 3. 🔥 LA ASPIRADORA: Forzamos que sea string y le quitamos TODO lo que sea basura 
+        # (espacios, saltos de línea \n \r, y comillas accidentales)
+        self.supabase_url = str(raw_url).strip().replace('"', '').replace("'", "")
+        self.supabase_key = str(raw_key).strip().replace('"', '').replace("'", "")
+        
+        # 4. Ahora sí, conectamos con la llave inmaculada
         self.supabase = create_client(self.supabase_url, self.supabase_key)
         
         # Hacemos lo mismo con Stability AI por si acaso
