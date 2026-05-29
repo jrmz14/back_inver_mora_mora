@@ -169,12 +169,10 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-        "OPTIONS": {
-            "manifest_strict": False, # <--- AGREGA ESTO
-        },
+        # Le quitamos la palabra 'Manifest' y borramos el OPTIONS
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage", 
     },
-} 
+}
 # Permite todas las fuentes (solo para desarrollo)
 CORS_ALLOW_ALL_ORIGINS = True
 
