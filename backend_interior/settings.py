@@ -156,16 +156,22 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') # Donde Django reunirá todo
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
-]
-if DEBUG:
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
-else:
-    # Solo usamos WhiteNoise cuando el sistema esté subido a producción (Render)
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# COMENTA O BORRA ESTA PARTE PORQUE NO TIENES LA CARPETA 'static'
+# STATICFILES_DIRS = [
+#     os.path.join(BASE_DIR, 'static'),
+# ]
+
+# Configuración moderna (Reemplaza el bloque de STATICFILES_STORAGE)
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 # Permite todas las fuentes (solo para desarrollo)
 CORS_ALLOW_ALL_ORIGINS = True
 
