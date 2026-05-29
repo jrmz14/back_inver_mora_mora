@@ -170,8 +170,11 @@ STORAGES = {
     },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "OPTIONS": {
+            "manifest_strict": False, # <--- AGREGA ESTO
+        },
     },
-}
+} 
 # Permite todas las fuentes (solo para desarrollo)
 CORS_ALLOW_ALL_ORIGINS = True
 
