@@ -12,27 +12,37 @@ from backend_interior import settings
 
 class AIService:
     def __init__(self):
-       def __init__(self):
-        # 1. Obtenemos las variables crudas
+        print("--- 🕵️‍♂️ INICIANDO DIAGNÓSTICO DE SUPABASE ---")
         raw_url = getattr(settings, "SUPABASE_URL", os.getenv("SUPABASE_URL"))
         raw_key = getattr(settings, "SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
         
-        # 2. Verificamos que al menos existan
+        # 1. Si esto está vacío, Render nos está engañando
         if not raw_url or not raw_key:
-            raise Exception("❌ Faltan las credenciales de Supabase en el entorno.")
-
-        # 3. 🔥 LA ASPIRADORA: Forzamos que sea string y le quitamos TODO lo que sea basura 
-        # (espacios, saltos de línea \n \r, y comillas accidentales)
+            raise ValueError("🚨 ERROR FATAL: Las variables de Supabase llegan VACÍAS (None). Render no está leyendo el .env ni las variables.")
+            
+        # 2. La aspiradora a máxima potencia
         self.supabase_url = str(raw_url).strip().replace('"', '').replace("'", "")
         self.supabase_key = str(raw_key).strip().replace('"', '').replace("'", "")
         
-        # 4. Ahora sí, conectamos con la llave inmaculada
-        self.supabase = create_client(self.supabase_url, self.supabase_key)
+        # 3. Imprimimos los primeros caracteres para ver qué está leyendo realmente
+        print(f"URL detectada: {self.supabase_url}")
+        print(f"KEY detectada: {self.supabase_key[:8]}... (Oculto por seguridad)")
         
-        # Hacemos lo mismo con Stability AI por si acaso
-        self.stability_key = getattr(settings, "STABILITY_KEY", os.getenv("STABILITY_KEY"))
-        self.api_host = "https://api.stability.ai"
-        self.engine_id = "stable-diffusion-xl-1024-v1-0"
+        # 4. SIN TRY/EXCEPT. Si explota por Invalid API Key, que explote aquí.
+        self.supabase = create_client(self.supabase_url, self.supabase_key)
+        print("✅ SUPABASE CONECTADO PERFECTAMENTE")
+
+    def upload_to_supabase(self, file_bytes, filename):
+        # Seguro extra por si acaso
+        if not hasattr(self, 'supabase'):
+            raise Exception("🚨 El cliente de Supabase no se pudo inicializar.")
+            
+        bucket_name = 'catalog-assets' # O el bucket que estés usando
+        try:
+            self.supabase.storage.from_(bucket_name).upload(filename, file_bytes)
+            return self.supabase.storage.from_(bucket_name).get_public_url(filename)
+        except Exception as e:
+            raise Exception(f"Fallo al subir archivo a Supabase: {e}")
 
     def upload_to_supabase(self, file_data, file_name):
         try:
