@@ -15,7 +15,7 @@ from integrations.services.inpainting_service import InpaintingService
 class SegmentImageView(APIView):
     """
     PASO 1: Recibe la foto, la segmenta y devuelve los links 
-    de la original y el mapa de colores.
+    de la original y el mapa de colores. (Versión Blindada)
     """
     parser_classes = (MultiPartParser, FormParser)
 
@@ -24,23 +24,32 @@ class SegmentImageView(APIView):
         if not image_obj:
             return Response({"error": "No se envió ninguna imagen"}, status=400)
 
-        ai_service = AIService()
-        seg_service = SemanticSegmentationService()
-
+        # ¡TODO DENTRO DEL TRY PARA ATRAPAR CUALQUIER EXPLOSIÓN!
         try:
+            # Si AIService falla aquí, ahora sí nos enteramos
+            ai_service = AIService()
+            seg_service = SemanticSegmentationService()
+
             image_bytes = image_obj.read()
             ext = image_obj.name.split('.')[-1]
+            
+            # Seguro extra: Si la foto viene de iOS sin extensión clara, forzamos jpg
+            if ext.lower() not in ['jpg', 'jpeg', 'png', 'webp']:
+                ext = 'jpg'
+
             original_name = f"orig_{uuid.uuid4()}.{ext}"
             original_url = ai_service.upload_to_supabase(image_bytes, original_name)
 
             # --- AQUI RECIBIMOS LA MAGIA ---
             map_image, segments_data, img_w, img_h = seg_service.generate_advanced_map(image_bytes)
             
-            # Guardamos la máscara por debajo de cuerda en Supabase 
-            # (Porque la vamos a usar en el Backend para el recorte final)
             buffer = io.BytesIO()
             map_image.save(buffer, format="PNG")
             map_url = ai_service.upload_to_supabase(buffer.getvalue(), f"map_{uuid.uuid4()}.png")
+
+            # git CONVERSIÓN SEGURA A NATIVO (Antibalas para el JSON de Flutter)
+            safe_w = int(img_w)
+            safe_h = int(img_h)
 
             # Le respondemos a Flutter con TODO lo que necesita para dibujar
             return Response({
@@ -48,15 +57,16 @@ class SegmentImageView(APIView):
                 "original_url": original_url,
                 "map_url": map_url,
                 "image_size": {
-                    "width": img_w,
-                    "height": img_h
+                    "width": safe_w,
+                    "height": safe_h
                 },
-                "segments": segments_data, # <--- La lista de los botoncitos X, Y
+                "segments": segments_data, # La lista de los botoncitos X, Y
                 "message": "Espacio analizado con éxito."
             })
 
         except Exception as e:
-            print(f"❌ Error en Segmentación: {str(e)}")
+            # AHORA SÍ: Si algo falla, lo vemos en Render y Flutter no se traga un HTML
+            print(f"❌ Error CRÍTICO en Segmentación: {str(e)}")
             return Response({"status": "error", "message": str(e)}, status=500)
 
 class ProcessImageView(APIView):
