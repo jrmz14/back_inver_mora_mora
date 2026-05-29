@@ -5,6 +5,8 @@ import random
 import base64
 from PIL import Image
 from supabase import create_client
+from django.conf import settings
+
 
 from backend_interior import settings
 
