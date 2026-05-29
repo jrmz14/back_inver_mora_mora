@@ -20,7 +20,7 @@ class AIService:
 
     def upload_to_supabase(self, file_data, file_name):
         try:
-            # 💡 EL FIX: Leemos el final del nombre para saber qué etiqueta ponerle
+            #   EL FIX: Leemos el final del nombre para saber qué etiqueta ponerle
             # Si termina en .png, le decimos a Supabase que es un PNG puro. Si no, va como JPEG.
             content_type = "image/png" if file_name.lower().endswith(".png") else "image/jpeg"
 

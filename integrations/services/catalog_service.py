@@ -30,7 +30,7 @@ class CatalogService:
             return []
 
     def get_categories(self):
-        # 💡 Endpoint extra por si Flutter necesita listar las categorías sueltas
+        #   Endpoint extra por si Flutter necesita listar las categorías sueltas
         try:
             categories = Category.objects.filter(is_active=True).order_by('name')
             return [{"id": c.id, "name": c.name} for c in categories]
@@ -63,7 +63,7 @@ class CatalogService:
                 if cat_name not in catalog:
                     catalog[cat_name] = []
                     
-                # 💡 Formato empacado para Flutter
+                #   Formato empacado para Flutter
                 catalog[cat_name].append({
                     "id": material.id,
                     "name": material.name,

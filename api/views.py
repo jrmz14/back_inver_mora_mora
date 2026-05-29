@@ -117,7 +117,7 @@ class MaterialsByBrandView(APIView):
     def get(self, request):
         brand_id = request.query_params.get('brand_id', 'all')
         
-        # 💡 ATRAPAMOS LOS NUEVOS PARÁMETROS DE FLUTTER
+        #   ATRAPAMOS LOS NUEVOS PARÁMETROS DE FLUTTER
         category_id = request.query_params.get('category_id') 
         page = request.query_params.get('page')
 

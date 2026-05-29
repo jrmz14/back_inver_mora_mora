@@ -4,7 +4,7 @@ import urllib.request
 
 class InpaintingService:
     def __init__(self):
-        # 💡 Nos libramos de las APIs por ahora. Motor 100% local y matemático.
+        #   Nos libramos de las APIs por ahora. Motor 100% local y matemático.
         pass
 
     def _recortar_bordes_blancos(self, texture_cv):
@@ -99,7 +99,7 @@ class InpaintingService:
             if mask_3d.shape != original_img_cv.shape:
                 mask_3d = cv2.resize(mask_3d, (w_img, h_img), interpolation=cv2.INTER_NEAREST)
 
-            # 5. 💡 PURIFICAMOS LA MÁSCARA PARA QUITAR LAS 16 PAREDES FANTASMAS
+            # 5.   PURIFICAMOS LA MÁSCARA PARA QUITAR LAS 16 PAREDES FANTASMAS
             mask_limpia = self._limpiar_mascara(mask_3d[:, :, 0]) # Le pasamos 1 solo canal al purificador
             mask_limpia_3d = cv2.cvtColor(mask_limpia, cv2.COLOR_GRAY2BGR)
 

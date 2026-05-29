@@ -58,7 +58,7 @@ class SemanticSegmentationService:
 
         # --- LA CIRUGÍA ANTI-ALUCINACIONES EMPIEZA AQUÍ ---
         
-        # 💡 Identificamos los estorbos comunes (Obstáculos)
+        #   Identificamos los estorbos comunes (Obstáculos)
         # IDs de ADE20K: 7(cama), 12(persona), 14(puerta), 15(mesa), 19(gabinete), 31(silla), 32(sofá)
         obstaculos_ids = [7, 12, 14, 15, 19, 31, 32]
         raw_obstacle_mask = np.isin(segmentation_map, obstaculos_ids).astype(np.uint8)

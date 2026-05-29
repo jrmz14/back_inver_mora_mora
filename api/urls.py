@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     BrandListView, 
-    CategoryListView,  # 💡 La nueva vista que creamos
+    CategoryListView,  #   La nueva vista que creamos
     MaterialsByBrandView, 
     ProcessImageView, 
     SegmentImageView
