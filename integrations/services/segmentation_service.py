@@ -21,8 +21,7 @@ class SemanticSegmentationService:
 
     def generate_advanced_map(self, image_path_or_bytes):
         """
-        🗺️ Reemplazo del Segformer para producción (Render).
-        Calcula las áreas mediante geometría de contornos y devuelve el JSON exacto para tu APK.
+        Versión tolerante y permisiva para asegurar que Flutter SIEMPRE reciba pines.
         """
         if isinstance(image_path_or_bytes, bytes):
             image = Image.open(io.BytesIO(image_path_or_bytes)).convert("RGB")
@@ -32,57 +31,54 @@ class SemanticSegmentationService:
         original_img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         h, w = original_img.shape[:2]
 
-        # 1. Suavizamos la imagen para fusionar texturas y dejar bloques de color sólidos
-        shifted = cv2.pyrMeanShiftFiltering(original_img, 21, 51)
-        gray = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
+        # 1. Suavizado más suave para no destruir las formas grandes
+        gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-        # 2. Buscamos bordes estructurales y los engordamos para separar bien las zonas
-        edges = cv2.Canny(gray, 30, 100)
-        kernel = np.ones((5, 5), np.uint8)
-        edges_dilated = cv2.dilate(edges, kernel, iterations=2)
-
-        # 3. Invertimos: Las paredes/suelo se vuelven bloques blancos limpios
+        # 2. Bordes Canny con umbral más alto para ignorar texturas pequeñas
+        edges = cv2.Canny(gray, 50, 150)
+        
+        # 3. Dilatamos para cerrar perímetros
+        kernel = np.ones((3, 3), np.uint8)
+        edges_dilated = cv2.dilate(edges, kernel, iterations=1)
         mask_areas = cv2.bitwise_not(edges_dilated)
 
-        # 4. Encontramos los contornos geométricos de la habitación
+        # 4. Buscamos contornos
         contours, _ = cv2.findContours(mask_areas, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
         final_img_rgb = np.zeros((h, w, 3), dtype=np.uint8)
-        segments_data = [] # El JSON idéntico para Flutter
+        segments_data = []
         contador_paredes = 1
         
-        # Umbral: Filtramos ruido (bloques menores al 5% de la foto)
-        min_area = (h * w) * 0.05 
+        # 🔥 Bajamos el umbral del 5% al 1% para capturar CUALQUIER sección de pared
+        min_area = (h * w) * 0.01 
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area > min_area:
-                # 5. Calculamos el Centroide con la misma fórmula matemática (Moments)
                 M = cv2.moments(cnt)
                 if M["m00"] > 0:
                     cX = int(M["m10"] / M["m00"])
                     cY = int(M["m01"] / M["m00"])
 
-                    # 6. Lógica espacial automática: Si está abajo, es piso. Si no, pared.
-                    is_floor = cY > (h * 0.75)
+                    # Si el centro está muy abajo es piso, sino pared
+                    is_floor = cY > (h * 0.80)
 
                     if is_floor:
-                        color = [0, 0, 255] # Tu azul original para el piso
+                        color = [0, 0, 255]
                         seg_id = "floor_1"
                         label = "Piso"
                         segment_type = "floor"
                     else:
-                        color = np.random.randint(50, 200, size=3).tolist()
+                        color = [255, 0, 0] # Color fijo para simplificar
                         seg_id = f"wall_{contador_paredes}"
                         label = f"Pared {contador_paredes}"
                         segment_type = "wall"
                         contador_paredes += 1
 
-                    # Pintamos el mapa de colores de fondo
                     cv2.drawContours(final_img_rgb, [cnt], -1, color, thickness=cv2.FILLED)
 
-                    # 7. ESTRUCTURA SAGRADA PARA EL APK
                     segments_data.append({
                         "id": seg_id,
                         "label": label,
@@ -92,19 +88,26 @@ class SemanticSegmentationService:
                         "color": color
                     })
 
-        # Seguro de vida si la foto es un caos y no detecta formas claras
+        # Si OpenCV falló y la lista está vacía, forzamos un pin de pared en el centro
+        # de la pantalla para que la app responda sí o sí.
         if not segments_data:
+            print(" OpenCV no detectó formas claras. Activando pin de emergencia centroide.")
             segments_data.append({
-                "id": "wall_1", "label": "Pared 1", "type": "wall", 
-                "x": w//2, "y": h//2, "color": [0, 255, 0]
+                "id": "wall_1",
+                "label": "Pared Principal",
+                "type": "wall",
+                "x": int(w * 0.5), # Centro de la pantalla en X
+                "y": int(h * 0.4), # Centro-alto de la pantalla en Y (zona típica de pared)
+                "color": [255, 0, 0]
             })
-            cv2.rectangle(final_img_rgb, (0, 0), (w, h), (0, 255, 0), -1)
+            # Pintamos el mapa de fondo para que no vaya negro
+            final_img_rgb[:] = [255, 0, 0]
 
         return Image.fromarray(final_img_rgb), segments_data, w, h
 
     def generate_color_map(self, image_path_or_bytes):
         """
-        🎨 Dejo tu método de respaldo aquí por si tu views lo llama en algún lado, 
+        Dejo tu método de respaldo aquí por si tu views lo llama en algún lado, 
         pero adaptado a modo matemático para que no pida la IA.
         """
         img_map, _, _, _ = self.generate_advanced_map(image_path_or_bytes)
@@ -112,7 +115,7 @@ class SemanticSegmentationService:
 
     def get_binary_mask(self, image_bytes, surface_type="wall"):
         """
-        ✂️ Genera la máscara blanco/negro que necesita tu InpaintingService de forma matemática.
+         Genera la máscara blanco/negro que necesita tu InpaintingService de forma matemática.
         """
         if isinstance(image_bytes, bytes):
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
