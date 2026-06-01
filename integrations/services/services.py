@@ -6,6 +6,7 @@ import base64
 from PIL import Image
 from supabase import create_client
 from django.conf import settings
+from supabase.client import ClientOptions
 
 class AIService:
     def __init__(self):
@@ -27,7 +28,15 @@ class AIService:
         self.bucket_name = str(raw_bucket).strip().replace('"', '').replace("'", "")
         
         # 4. Conexión a Supabase
-        self.supabase = create_client(self.supabase_url, self.supabase_key)
+        self.supabase = create_client(
+            supabase_url=self.supabase_url, 
+            supabase_key=self.supabase_key,
+            options=ClientOptions(
+                postgrest_client_timeout=10,
+                storage_client_timeout=10
+            )
+        )
+        print("✅ SUPABASE CONECTADO PERFECTAMENTE Y SIN PROXIES")
         
         # 5. Configuración de Stability AI
         raw_stability = getattr(settings, "STABILITY_KEY", os.getenv("STABILITY_KEY"))
