@@ -1,150 +1,150 @@
+import os
+import io
+import time
+import base64
+import requests
 import cv2
 import numpy as np
-import io
 from PIL import Image
+from django.conf import settings
 
 class SemanticSegmentationService:
     def __init__(self):
-        # 🚀 ADIÓS IA PESADA. Iniciamos el motor 100% matemático.
-        # Ya no cargamos modelos de Nvidia, por lo que la RAM de Render queda libre.
-        print("Iniciando SemanticSegmentationService (Modo Geométrico Ligero)")
+        print("--- 🧠 INICIANDO CEREBRO DE IA (HUGGING FACE API) ---")
+        raw_token = getattr(settings, "HF_TOKEN", os.getenv("HF_TOKEN"))
+        
+        if not raw_token:
+            raise ValueError("🚨 ERROR: Falta el HF_TOKEN en el entorno.")
+            
+        self.hf_token = str(raw_token).strip().replace('"', '').replace("'", "")
+        
+        # El modelo Segformer B0 que usabas localmente, pero ahora en la nube
+        self.api_url = "https://api-inference.huggingface.co/models/nvidia/segformer-b0-finetuned-ade-512-512"
+        self.headers = {"Authorization": f"Bearer {self.hf_token}"}
 
-    def _clean_mask(self, mask):
+    def _call_hf_api(self, image_bytes):
         """
-        🧼 Tu limpiador morfológico original intacto.
+        Llama a la API de Hugging Face. 
+        Maneja el "Cold Start" (cuando el modelo está dormido y tarda en cargar).
         """
-        mask_uint8 = mask.astype(np.uint8)
-        kernel = np.ones((5, 5), np.uint8)
-        cleaned = cv2.morphologyEx(mask_uint8, cv2.MORPH_CLOSE, kernel)
-        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
-        return cleaned
+        max_retries = 5
+        for attempt in range(max_retries):
+            print(f"📡 Llamando a Hugging Face (Intento {attempt + 1})...")
+            response = requests.post(self.api_url, headers=self.headers, data=image_bytes)
+            
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 503:
+                # El modelo está cargando. Esperamos 5 segundos y reintentamos.
+                print("⏳ El modelo de IA está despertando. Esperando 5 segundos...")
+                time.sleep(5)
+            else:
+                raise Exception(f"Fallo en Hugging Face API: {response.status_code} - {response.text}")
+                
+        raise Exception("Tiempo de espera agotado cargando el modelo de Hugging Face.")
 
     def generate_advanced_map(self, image_path_or_bytes):
         """
-        Versión tolerante y permisiva para asegurar que Flutter SIEMPRE reciba pines.
+        Obtiene la segmentación de la IA y extrae los pines (centroides) para Flutter.
         """
         if isinstance(image_path_or_bytes, bytes):
-            image = Image.open(io.BytesIO(image_path_or_bytes)).convert("RGB")
+            image_bytes = image_path_or_bytes
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         else:
+            with open(image_path_or_bytes, "rb") as f:
+                image_bytes = f.read()
             image = Image.open(image_path_or_bytes).convert("RGB")
 
         original_img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         h, w = original_img.shape[:2]
 
-        # 1. Suavizado más suave para no destruir las formas grandes
-        gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # 2. Bordes Canny con umbral más alto para ignorar texturas pequeñas
-        edges = cv2.Canny(gray, 50, 150)
+        # 1. Llamamos a la API
+        hf_result = self._call_hf_api(image_bytes)
         
-        # 3. Dilatamos para cerrar perímetros
-        kernel = np.ones((3, 3), np.uint8)
-        edges_dilated = cv2.dilate(edges, kernel, iterations=1)
-        mask_areas = cv2.bitwise_not(edges_dilated)
-
-        # 4. Buscamos contornos
-        contours, _ = cv2.findContours(mask_areas, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
         final_img_rgb = np.zeros((h, w, 3), dtype=np.uint8)
         segments_data = []
         contador_paredes = 1
-        
-        # 🔥 Bajamos el umbral del 5% al 1% para capturar CUALQUIER sección de pared
-        min_area = (h * w) * 0.01 
 
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area > min_area:
-                M = cv2.moments(cnt)
-                if M["m00"] > 0:
-                    cX = int(M["m10"] / M["m00"])
-                    cY = int(M["m01"] / M["m00"])
+        # 2. Procesamos la respuesta de la IA
+        for item in hf_result:
+            label = item.get("label", "").lower()
+            
+            # Solo nos interesan paredes o pisos
+            if label in ["wall", "floor"]:
+                # Decodificamos la máscara base64 que nos dio la IA
+                mask_b64 = item.get("mask")
+                mask_data = base64.b64decode(mask_b64)
+                mask_img = Image.open(io.BytesIO(mask_data)).convert("L")
+                
+                # Redimensionamos la máscara al tamaño de la foto original por seguridad
+                mask_resized = mask_img.resize((w, h), Image.NEAREST)
+                mask_cv = np.array(mask_resized)
+                
+                # Pintamos el fondo para depuración (Opcional, se puede quitar)
+                color = [0, 0, 255] if label == "floor" else np.random.randint(50, 200, size=3).tolist()
+                final_img_rgb[mask_cv > 128] = color
 
-                    # Si el centro está muy abajo es piso, sino pared
-                    is_floor = cY > (h * 0.80)
+                # Extraemos los contornos de esta máscara perfecta para buscar el Centro
+                contours, _ = cv2.findContours(mask_cv, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                for cnt in contours:
+                    # Filtramos basuritas muy pequeñas
+                    if cv2.contourArea(cnt) > (h * w) * 0.02:
+                        M = cv2.moments(cnt)
+                        if M["m00"] > 0:
+                            cX = int(M["m10"] / M["m00"])
+                            cY = int(M["m01"] / M["m00"])
+                            
+                            seg_id = "floor_1" if label == "floor" else f"wall_{contador_paredes}"
+                            ui_label = "Piso" if label == "floor" else f"Pared {contador_paredes}"
+                            
+                            segments_data.append({
+                                "id": seg_id,
+                                "label": ui_label,
+                                "type": label,
+                                "x": cX,
+                                "y": cY,
+                                "color": color
+                            })
+                            
+                            if label == "wall":
+                                contador_paredes += 1
 
-                    if is_floor:
-                        color = [0, 0, 255]
-                        seg_id = "floor_1"
-                        label = "Piso"
-                        segment_type = "floor"
-                    else:
-                        color = [255, 0, 0] # Color fijo para simplificar
-                        seg_id = f"wall_{contador_paredes}"
-                        label = f"Pared {contador_paredes}"
-                        segment_type = "wall"
-                        contador_paredes += 1
-
-                    cv2.drawContours(final_img_rgb, [cnt], -1, color, thickness=cv2.FILLED)
-
-                    segments_data.append({
-                        "id": seg_id,
-                        "label": label,
-                        "type": segment_type,
-                        "x": cX,
-                        "y": cY,
-                        "color": color
-                    })
-
-        # Si OpenCV falló y la lista está vacía, forzamos un pin de pared en el centro
-        # de la pantalla para que la app responda sí o sí.
+        # Seguro de vida por si la foto no tiene paredes claras
         if not segments_data:
-            print(" OpenCV no detectó formas claras. Activando pin de emergencia centroide.")
             segments_data.append({
-                "id": "wall_1",
-                "label": "Pared Principal",
-                "type": "wall",
-                "x": int(w * 0.5), # Centro de la pantalla en X
-                "y": int(h * 0.4), # Centro-alto de la pantalla en Y (zona típica de pared)
-                "color": [255, 0, 0]
+                "id": "wall_1", "label": "Pared 1", "type": "wall", 
+                "x": w//2, "y": h//2, "color": [255, 0, 0]
             })
-            # Pintamos el mapa de fondo para que no vaya negro
-            final_img_rgb[:] = [255, 0, 0]
 
         return Image.fromarray(final_img_rgb), segments_data, w, h
 
-    def generate_color_map(self, image_path_or_bytes):
-        """
-        Dejo tu método de respaldo aquí por si tu views lo llama en algún lado, 
-        pero adaptado a modo matemático para que no pida la IA.
-        """
-        img_map, _, _, _ = self.generate_advanced_map(image_path_or_bytes)
-        return img_map
-
     def get_binary_mask(self, image_bytes, surface_type="wall"):
         """
-         Genera la máscara blanco/negro que necesita tu InpaintingService de forma matemática.
+        ✂️ Genera la máscara blanco/negro perfecta para el motor de Inpainting.
         """
-        if isinstance(image_bytes, bytes):
-            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        else:
-            image = Image.open(image_bytes).convert("RGB")
-            
-        original_img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        h, w = original_img.shape[:2]
-
-        shifted = cv2.pyrMeanShiftFiltering(original_img, 21, 51)
-        gray = cv2.cvtColor(shifted, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 30, 100)
-        edges_dilated = cv2.dilate(edges, np.ones((5, 5), np.uint8), iterations=2)
-        mask_areas = cv2.bitwise_not(edges_dilated)
-
-        contours, _ = cv2.findContours(mask_areas, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        hf_result = self._call_hf_api(image_bytes)
         
-        raw_mask = np.zeros((h, w), dtype=np.uint8)
-        min_area = (h * w) * 0.05 
+        # Leemos el tamaño original para devolver la máscara exacta
+        image = Image.open(io.BytesIO(image_bytes))
+        w, h = image.size
+        
+        # Creamos un lienzo negro por defecto
+        final_mask = np.zeros((h, w), dtype=np.uint8)
+        
+        target_label = "floor" if surface_type == "floor" else "wall"
+        
+        for item in hf_result:
+            if item.get("label", "").lower() == target_label:
+                mask_data = base64.b64decode(item.get("mask"))
+                mask_img = Image.open(io.BytesIO(mask_data)).convert("L")
+                mask_resized = mask_img.resize((w, h), Image.NEAREST)
+                mask_cv = np.array(mask_resized)
+                
+                # Combinamos (por si Hugging Face devuelve la pared dividida en dos objetos)
+                final_mask = cv2.bitwise_or(final_mask, mask_cv)
 
-        for cnt in contours:
-            if cv2.contourArea(cnt) > min_area:
-                M = cv2.moments(cnt)
-                if M["m00"] > 0:
-                    cY = int(M["m01"] / M["m00"])
-                    is_floor = cY > (h * 0.75)
-
-                    if (surface_type == "floor" and is_floor) or (surface_type == "wall" and not is_floor):
-                        cv2.drawContours(raw_mask, [cnt], -1, 1, thickness=cv2.FILLED)
-
-        clean_mask = self._clean_mask(raw_mask) 
-        return clean_mask * 255
+        # Retornamos la máscara perfecta (donde > 128 es blanco 255)
+        _, binary_ready = cv2.threshold(final_mask, 128, 255, cv2.THRESH_BINARY)
+        
+        return binary_ready

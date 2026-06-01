@@ -51,6 +51,7 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = ['*']
 SUPABASE_URL = env('SUPABASE_URL', default=None)
 SUPABASE_KEY = env('SUPABASE_KEY', default=None)
+HF_TOKEN = env('HF_TOKEN', default=None)
 
 
 

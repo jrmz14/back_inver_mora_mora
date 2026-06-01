@@ -7,61 +7,59 @@ from PIL import Image
 from supabase import create_client
 from django.conf import settings
 
-
-from backend_interior import settings
-
 class AIService:
     def __init__(self):
-        print("--- 🕵️‍♂️ INICIANDO DIAGNÓSTICO DE SUPABASE ---")
+        print("--- 🕵️‍♂️ INICIANDO SERVICIO IA Y SUPABASE ---")
+        
+        # 1. Variables Crudas
         raw_url = getattr(settings, "SUPABASE_URL", os.getenv("SUPABASE_URL"))
         raw_key = getattr(settings, "SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
         
-        # 1. Si esto está vacío, Render nos está engañando
+        # 2. Variable Cruda del Bucket (Con valor por defecto)
+        raw_bucket = getattr(settings, "SUPABASE_BUCKET_NAME", os.getenv("SUPABASE_BUCKET_NAME", "catalog-assets"))
+        
         if not raw_url or not raw_key:
-            raise ValueError("🚨 ERROR FATAL: Las variables de Supabase llegan VACÍAS (None). Render no está leyendo el .env ni las variables.")
+            raise ValueError("🚨 ERROR FATAL: Faltan credenciales de Supabase.")
             
-        # 2. La aspiradora a máxima potencia
+        # 3. La aspiradora
         self.supabase_url = str(raw_url).strip().replace('"', '').replace("'", "")
         self.supabase_key = str(raw_key).strip().replace('"', '').replace("'", "")
+        self.bucket_name = str(raw_bucket).strip().replace('"', '').replace("'", "")
         
-        # 3. Imprimimos los primeros caracteres para ver qué está leyendo realmente
-        print(f"URL detectada: {self.supabase_url}")
-        print(f"KEY detectada: {self.supabase_key[:8]}... (Oculto por seguridad)")
-        
-        # 4. SIN TRY/EXCEPT. Si explota por Invalid API Key, que explote aquí.
+        # 4. Conexión a Supabase
         self.supabase = create_client(self.supabase_url, self.supabase_key)
-        print("✅ SUPABASE CONECTADO PERFECTAMENTE")
+        
+        # 5. Configuración de Stability AI
+        raw_stability = getattr(settings, "STABILITY_KEY", os.getenv("STABILITY_KEY"))
+        self.stability_key = str(raw_stability).strip().replace('"', '').replace("'", "") if raw_stability else None
+        self.api_host = "https://api.stability.ai"
+        self.engine_id = "stable-diffusion-xl-1024-v1-0"
+        
+        print(f"✅ SERVICIO INICIALIZADO. Bucket: {self.bucket_name}")
 
-    def upload_to_supabase(self, file_bytes, filename):
-        # Seguro extra por si acaso
+    def upload_to_supabase(self, file_data, file_name, bucket_name="remodelaciones"):
+        """
+        Sube archivos de forma inteligente. Si no le pasas el bucket, 
+        asume que es una foto de la app ('remodelaciones').
+        """
         if not hasattr(self, 'supabase'):
             raise Exception("🚨 El cliente de Supabase no se pudo inicializar.")
             
-        bucket_name = 'catalog-assets' # O el bucket que estés usando
         try:
-            self.supabase.storage.from_(bucket_name).upload(filename, file_bytes)
-            return self.supabase.storage.from_(bucket_name).get_public_url(filename)
-        except Exception as e:
-            raise Exception(f"Fallo al subir archivo a Supabase: {e}")
-
-    def upload_to_supabase(self, file_data, file_name):
-        try:
-            #   EL FIX: Leemos el final del nombre para saber qué etiqueta ponerle
-            # Si termina en .png, le decimos a Supabase que es un PNG puro. Si no, va como JPEG.
+            # Detecta si es PNG o JPEG
             content_type = "image/png" if file_name.lower().endswith(".png") else "image/jpeg"
 
-            self.supabase.storage.from_(self.bucket_name).upload(
+            self.supabase.storage.from_(bucket_name).upload(
                 path=file_name,
                 file=file_data,
-                file_options={"content-type": content_type} # 👈 Ahora es dinámico
+                file_options={"content-type": content_type}
             )
-            return self.supabase.storage.from_(self.bucket_name).get_public_url(file_name)
+            return self.supabase.storage.from_(bucket_name).get_public_url(file_name)
             
         except Exception as e:
-            print(f"❌ Error en Supabase: {e}")
+            print(f"❌ Error en Supabase al subir {file_name} al bucket '{bucket_name}': {e}")
             raise e
         
-    # AÑADIMOS EL PARÁMETRO mask_bytes
     def run_remodelacion_logica(self, imagen_url, mask_bytes, room_data):
         try:
             print(f"--- PASO 3: Remodelando con INPAINTING (Máscara de Precisión) ---")
@@ -71,23 +69,25 @@ class AIService:
             if response_img.status_code != 200:
                 raise Exception("No pude bajar la foto original")
 
-            # 2. Redimensionamos AMBAS imágenes (Original y Máscara) exactamente igual
+            # 2. Redimensionamos AMBAS imágenes (Original y Máscara)
             img = Image.open(io.BytesIO(response_img.content))
             img_resized = img.resize((768, 1344), Image.LANCZOS)
             
             buffer_img = io.BytesIO()
-            img_resized.save(buffer_img, format="PNG") # Stability prefiere PNG para inpainting
+            img_resized.save(buffer_img, format="PNG") 
             img_final_bytes = buffer_img.getvalue()
 
-            mask_img = Image.open(io.BytesIO(mask_bytes)).convert("L") # "L" asegura que sea Blanco y Negro
-            mask_resized = mask_img.resize((768, 1344), Image.NEAREST) # NEAREST para no difuminar los bordes duros
+            mask_img = Image.open(io.BytesIO(mask_bytes)).convert("L") 
+            mask_resized = mask_img.resize((768, 1344), Image.NEAREST) 
             
             buffer_mask = io.BytesIO()
             mask_resized.save(buffer_mask, format="PNG")
             mask_final_bytes = buffer_mask.getvalue()
 
-            # 3. Llamada a Stability usando el endpoint de MASKING
-            # NOTA EL CAMBIO EN LA URL
+            # 3. Llamada a Stability AI
+            if not self.stability_key:
+                raise Exception("Falta la API Key de Stability AI")
+
             response = requests.post(
                 f"{self.api_host}/v1/generation/{self.engine_id}/image-to-image/masking",
                 headers={
@@ -96,11 +96,11 @@ class AIService:
                 },
                 files={
                     "init_image": img_final_bytes,
-                    "mask_image": mask_final_bytes # Mandamos nuestra máscara sagrada
+                    "mask_image": mask_final_bytes 
                 },
                 data={
-                    "mask_source": "MASK_IMAGE_WHITE", # Le decimos que pinte donde la máscara es BLANCA
-                    "text_prompts[0][text]": f"Highly detailed {room_data['material']} texture applied to the surface, photorealistic, correct perspective, soft architectural lighting",
+                    "mask_source": "MASK_IMAGE_WHITE", 
+                    "text_prompts[0][text]": f"Highly detailed {room_data.get('material', 'texture')} applied to the surface, photorealistic, correct perspective, soft architectural lighting",
                     "text_prompts[0][weight]": 1,
                     "text_prompts[1][text]": "bad perspective, deformed, repeating pattern poorly, artifacts",
                     "text_prompts[1][weight]": -1,
@@ -117,40 +117,28 @@ class AIService:
             image_base64 = data["artifacts"][0]["base64"]
             image_bytes = base64.b64decode(image_base64)
 
-            # 4. Guardar resultado en Supabase
+            # 4. Guardar resultado usando el método unificado
             output_name = f"render_inpaint_{os.urandom(4).hex()}.png"
-            self.supabase.storage.from_(self.bucket_name).upload(
-                path=output_name,
-                file=image_bytes,
-                file_options={"content-type": "image/png"}
-            )
-            
-            return self.supabase.storage.from_(self.bucket_name).get_public_url(output_name)
+            return self.upload_to_supabase(image_bytes, output_name)
 
         except Exception as e:
             print(f"❌ FALLÓ MOTOR STABILITY: {e}")
-            # Mantenemos tu rescate con Pollinations por si acaso
             seed = random.randint(1, 1000000)
             prompt_p = f"luxury room with {room_data.get('material', 'new')} surface"
             return f"https://image.pollinations.ai/prompt/{prompt_p.replace(' ', '%20')}?seed={seed}"
         
+    @staticmethod
     def blend_material_before_ai(original_img_bytes, mask_bytes, material_url):
-        # 1. Bajamos el material de VTEX
         resp = requests.get(material_url)
         material_tile = Image.open(io.BytesIO(resp.content))
         
-        # 2. Creamos una imagen del tamaño de la original llena con el material repetido
-        # (Esto es como poner el papel tapiz antes de tomar la foto)
         full_texture = Image.new('RGB', (768, 1344))
         for x in range(0, 768, material_tile.width):
             for y in range(0, 1344, material_tile.height):
                 full_texture.paste(material_tile, (x, y))
                 
-        # 3. Usamos la máscara para pegar el material solo en la pared
         original = Image.open(io.BytesIO(original_img_bytes))
         mask = Image.open(io.BytesIO(mask_bytes)).convert("L")
         
-        # Esta es la magia: combina la original con la textura usando la máscara como pegamento
         blended_img = Image.composite(full_texture, original, mask)
-        
-        return blended_img # Esta es la que le mandamos a Stability
+        return blended_img
